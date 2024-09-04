@@ -772,7 +772,7 @@ getLocalFile :: Get (Word32, B.ByteString)
 getLocalFile = do
   offset <- bytesRead
   getWord32le >>= ensure (== 0x04034b50)
-  skip 2  -- version
+  ver <- getWord16le  -- version
   bitflag <- getWord16le
   rawCompressionMethod <- getWord16le
   compressionMethod <- case rawCompressionMethod of
@@ -800,9 +800,17 @@ getLocalFile = do
               sig <- lookAhead getWord32le
               when (sig == 0x08074b50) $ skip 4
               skip 4 -- crc32
-              cs <- getWord32le  -- compressed size
-              skip 4 -- uncompressed size
-              if fromIntegral cs == B.length raw
+              cs <-
+                if ver >= 0x2D
+                  then do -- from version 4.5 these fields are wider
+                    s <- getWord64le  -- compressed size
+                    skip 8 -- uncompressed size
+                    return $ fromIntegral s
+                  else do
+                    s <- getWord32le  -- compressed size
+                    skip 4 -- uncompressed size
+                    return $ fromIntegral s
+              if cs == B.length raw
                  then return raw
                  else fail $ printf
                        ("Content size mismatch in data descriptor record: "
